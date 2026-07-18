@@ -65,7 +65,7 @@ func TestOrdinal(t *testing.T) {
 		vocab Vocab
 		want  string
 	}{
-		{Off, GLM, ""},
+		{Off, GLM, "none"}, // GLM reasons by default; Off must send none to silence it
 		{Low, GLM, "high"}, // GLM coerces sub-max up to high
 		{Mid, GLM, "high"},
 		{High, GLM, "high"},
@@ -94,8 +94,15 @@ func TestFields(t *testing.T) {
 	if got := j(Mid.Fields(OpenAI)); got != `{"reasoning_effort":"medium"}` {
 		t.Errorf("Mid OpenAI → %s", got)
 	}
-	// Off writes nothing on any vocabulary.
-	for _, v := range []Vocab{GLM, OpenAI, Qwen, Kimi} {
+	// Off on a GLM-family upstream must actively disable reasoning: these models reason
+	// by default, so an absent field streams a content:null reasoning preamble that reads
+	// as an empty completion. Off → reasoning_effort:"none".
+	if got := j(Off.Fields(GLM)); got != `{"reasoning_effort":"none"}` {
+		t.Errorf("Off GLM → %s, want reasoning_effort:none", got)
+	}
+	// Off writes nothing on vocabularies whose upstream defaults OFF (o-series reasons
+	// only when asked; Qwen/Kimi are explicit gates).
+	for _, v := range []Vocab{OpenAI, Qwen, Kimi} {
 		if got := j(Off.Fields(v)); got != `{}` {
 			t.Errorf("Off %q → %s, want {}", v, got)
 		}

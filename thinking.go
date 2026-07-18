@@ -73,7 +73,7 @@ func (d Depth) On() bool { return d > Off }
 type Vocab string
 
 const (
-	GLM    Vocab = "glm"    // reasoning_effort ∈ {high, max}: GLM-5.*, DeepSeek V4, the DO-AI default
+	GLM    Vocab = "glm"    // reasoning_effort ∈ {none, high, max}: GLM-5.*, DeepSeek V4, the DO-AI default (reasons unless told none)
 	OpenAI Vocab = "openai" // reasoning_effort ∈ {low, medium, high}: o-series
 	Qwen   Vocab = "qwen"   // enable_thinking gate
 	Kimi   Vocab = "kimi"   // a thinking object {type, preserve_thinking}
@@ -99,9 +99,15 @@ func Of(upstream string) Vocab {
 }
 
 // Fields projects the depth into the request fields a vocabulary accepts, as a map
-// to merge into an upstream chat body — {} when the depth is Off or the vocabulary
-// takes no field. It is the sole producer of these keys, so a caller clears Keys
-// first: a stale field from another vocabulary must never reach this upstream.
+// to merge into an upstream chat body — {} when the vocabulary takes no field for the
+// depth. It is the sole producer of these keys, so a caller clears Keys first: a stale
+// field from another vocabulary must never reach this upstream.
+//
+// Off is not always empty: a GLM-family upstream reasons BY DEFAULT, so Off (the instant
+// path) must actively send reasoning_effort:"none" — the absence of the field would leave
+// the model reasoning, streaming a long content:null preamble that reads as an empty
+// completion. Vocabularies that default OFF (Qwen/Kimi gates, OpenAI o-series) write
+// nothing for Off, as before.
 func (d Depth) Fields(v Vocab) map[string]any {
 	switch v {
 	case GLM, OpenAI:
@@ -125,8 +131,10 @@ func (d Depth) Fields(v Vocab) map[string]any {
 }
 
 // ordinal folds the depth to a reasoning_effort value valid for an ordinal
-// vocabulary (GLM or OpenAI), or "" for Off. GLM has only {high, max}, so Low/Mid/
-// High all coerce up to "high"; OpenAI has no "max", so Max coerces down to "high".
+// vocabulary (GLM or OpenAI). GLM reasons by default, so Off maps to "none" (silence the
+// preamble) and it has no low/medium — Low/Mid/High coerce up to "high", Max to "max".
+// OpenAI's o-series reasons only when asked, so Off maps to "" (no field); it has
+// {low,medium,high} and no "max", so Max coerces down to "high".
 func (d Depth) ordinal(v Vocab) string {
 	switch v {
 	case OpenAI:
@@ -140,6 +148,15 @@ func (d Depth) ordinal(v Vocab) string {
 		}
 	case GLM:
 		switch d {
+		case Off:
+			// GLM-family upstreams on DO-AI (glm-5.*, deepseek-*, minimax-*, …)
+			// REASON BY DEFAULT: sending no reasoning_effort makes them emit a long
+			// content:null reasoning stream before any answer token, which a plain
+			// OpenAI client renders as an empty completion. Off means "instant path",
+			// so it must actively request none — the one value that silences the
+			// preamble and streams the answer immediately. (Verified against DO-AI:
+			// glm-5.2/deepseek-v4-pro honor "none" and emit zero reasoning chunks.)
+			return "none"
 		case Low, Mid, High:
 			return "high"
 		case Max:
