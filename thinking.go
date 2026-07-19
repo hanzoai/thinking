@@ -18,18 +18,21 @@ package thinking
 type Depth int
 
 const (
-	Off  Depth = iota // don't think — the instant path
-	Low               // light
-	Mid               // moderate
-	High              // hard
-	Max               // hardest
+	Off     Depth = iota // don't think — the instant path
+	Minimal              // the floor: think a little (OpenAI "minimal")
+	Low                  // light
+	Mid                  // moderate
+	High                 // hard
+	Max                  // hardest
 )
 
-// deep is the token budget at or above which a request is the hardest tier — Claude
-// Code's "ultrathink" is ~32k, "think" ~4k. mid is the moderate threshold.
+// Anthropic thinking budgets, in tokens: the outbound of Budget. Claude Code's
+// "ultrathink" is ~32k, "think" ~4k; a floor tier is ~1k.
 const (
-	mid  = 4096
-	deep = 16384
+	small = 1024
+	mid   = 4096
+	deep  = 16384
+	ultra = 32768
 )
 
 // Budget folds an Anthropic thinking.budget_tokens into a Depth. Zero (thinking
@@ -38,6 +41,8 @@ func Budget(tokens int) Depth {
 	switch {
 	case tokens <= 0:
 		return Off
+	case tokens < small:
+		return Minimal
 	case tokens < mid:
 		return Low
 	case tokens < deep:
@@ -47,10 +52,33 @@ func Budget(tokens int) Depth {
 	}
 }
 
-// Effort folds an OpenAI reasoning_effort ordinal into a Depth. An unknown or empty
-// value is Off.
+// Tokens is the Anthropic thinking budget for a depth — the outbound twin of Budget,
+// so routing to an Anthropic-kind upstream projects the same neutral depth back into a
+// native thinking object. Off is 0 (no thinking block).
+func (d Depth) Tokens() int {
+	switch d {
+	case Minimal:
+		return small
+	case Low:
+		return 2048
+	case Mid:
+		return mid
+	case High:
+		return deep
+	case Max:
+		return ultra
+	}
+	return 0
+}
+
+// Effort folds an OpenAI reasoning_effort ordinal into a Depth. "off"/"none"/"disabled"
+// and any unknown/empty value are Off; "minimal" is the reasoning floor.
 func Effort(ordinal string) Depth {
 	switch ordinal {
+	case "off", "none", "disabled":
+		return Off
+	case "minimal":
+		return Minimal
 	case "low":
 		return Low
 	case "medium":
@@ -73,10 +101,11 @@ func (d Depth) On() bool { return d > Off }
 type Vocab string
 
 const (
-	GLM    Vocab = "glm"    // reasoning_effort ∈ {none, high, max}: GLM-5.*, DeepSeek V4, the DO-AI default (reasons unless told none)
-	OpenAI Vocab = "openai" // reasoning_effort ∈ {low, medium, high}: o-series
-	Qwen   Vocab = "qwen"   // enable_thinking gate
-	Kimi   Vocab = "kimi"   // a thinking object {type, preserve_thinking}
+	GLM       Vocab = "glm"       // reasoning_effort ∈ {none, high, max}: GLM-5.*, DeepSeek V4, the DO-AI default (reasons unless told none)
+	OpenAI    Vocab = "openai"    // reasoning_effort ∈ {minimal, low, medium, high}: gpt-5.*, o-series
+	Qwen      Vocab = "qwen"      // enable_thinking gate
+	Kimi      Vocab = "kimi"      // a thinking object {type, preserve_thinking}
+	Anthropic Vocab = "anthropic" // native thinking object {type, budget_tokens}; pick by upstream KIND
 )
 
 // Of returns the vocabulary an upstream model id accepts, keyed by id prefix — the
@@ -85,13 +114,22 @@ const (
 // its two-tier ordinal is the safe supposition.
 func Of(upstream string) Vocab {
 	m := lower(upstream)
+	// Strip a leading provider prefix so a gateway slug ("openai-o3", "alibaba-qwen3")
+	// maps by its model family, not the vendor tag. Without this, "openai-o3" misses the
+	// o-series case and folds to GLM, which would send reasoning_effort=max -- a value the
+	// OpenAI o-series rejects.
+	for _, p := range []string{"openai-", "anthropic-", "alibaba-", "nvidia-", "deepseek-", "zhipu-"} {
+		if prefix(m, p) {
+			m = m[len(p):]
+			break
+		}
+	}
 	switch {
-	case prefix(m, "qwen") || prefix(m, "alibaba-qwen"):
+	case prefix(m, "qwen"):
 		return Qwen
 	case prefix(m, "kimi"):
 		return Kimi
-	case prefix(m, "gpt-") || prefix(m, "openai-gpt") ||
-		prefix(m, "o1") || prefix(m, "o3") || prefix(m, "o4"):
+	case prefix(m, "gpt") || prefix(m, "o1") || prefix(m, "o3") || prefix(m, "o4"):
 		return OpenAI
 	default:
 		return GLM
@@ -126,6 +164,10 @@ func (d Depth) Fields(v Vocab) map[string]any {
 			}
 			return map[string]any{"thinking": think}
 		}
+	case Anthropic:
+		if d.On() {
+			return map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": d.Tokens()}}
+		}
 	}
 	return map[string]any{}
 }
@@ -139,6 +181,8 @@ func (d Depth) ordinal(v Vocab) string {
 	switch v {
 	case OpenAI:
 		switch d {
+		case Minimal:
+			return "minimal"
 		case Low:
 			return "low"
 		case Mid:
@@ -157,8 +201,8 @@ func (d Depth) ordinal(v Vocab) string {
 			// preamble and streams the answer immediately. (Verified against DO-AI:
 			// glm-5.2/deepseek-v4-pro honor "none" and emit zero reasoning chunks.)
 			return "none"
-		case Low, Mid, High:
-			return "high"
+		case Minimal, Low, Mid, High:
+			return "high" // GLM's floor is "high"; the coarser vocabulary rounds up
 		case Max:
 			return "max"
 		}
