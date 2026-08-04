@@ -36,3 +36,5 @@ sole writer and no field leaks across a vocabulary boundary.
 
 The fold is total and monotone — deeper in, harder out — and lossy where a
 vocabulary is coarser (GLM has no low/medium; OpenAI has no max).
+
+Licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option — per HIP-0137.
