@@ -75,7 +75,8 @@ type Vocab string
 const (
 	GLM    Vocab = "glm"    // reasoning_effort ∈ {none, high, max}: GLM-5.*, DeepSeek V4, the DO-AI default (reasons unless told none)
 	OpenAI Vocab = "openai" // reasoning_effort ∈ {low, medium, high}: o-series
-	Qwen   Vocab = "qwen"   // enable_thinking gate
+	Qwen   Vocab = "qwen"   // enable_thinking gate (defaults off upstream)
+	Zen    Vocab = "zen"    // enable_thinking gate (defaults on; Off actively disables thinking)
 	Kimi   Vocab = "kimi"   // a thinking object {type, preserve_thinking}
 )
 
@@ -86,6 +87,8 @@ const (
 func Of(upstream string) Vocab {
 	m := lower(upstream)
 	switch {
+	case prefix(m, "zen"):
+		return Zen
 	case prefix(m, "qwen") || prefix(m, "alibaba-qwen"):
 		return Qwen
 	case prefix(m, "kimi"):
@@ -114,6 +117,11 @@ func (d Depth) Fields(v Vocab) map[string]any {
 		if e := d.ordinal(v); e != "" {
 			return map[string]any{"reasoning_effort": e}
 		}
+	case Zen:
+		if d.On() {
+			return map[string]any{"enable_thinking": true}
+		}
+		return map[string]any{"enable_thinking": false}
 	case Qwen:
 		if d.On() {
 			return map[string]any{"enable_thinking": true}

@@ -45,6 +45,8 @@ func TestOf(t *testing.T) {
 		"llama3.3-70b":       GLM,
 		"qwen3.5-397b-a17b":  Qwen,
 		"alibaba-qwen3-32b":  Qwen,
+		"zen5.8":             Zen,
+		"zen5-flash":         Zen,
 		"kimi-k2.6":          Kimi,
 		"gpt-5.3-codex":      OpenAI,
 		"o3-mini":            OpenAI,
@@ -70,22 +72,25 @@ func TestOrdinal(t *testing.T) {
 		{Mid, GLM, "high"},
 		{High, GLM, "high"},
 		{Max, GLM, "max"},
-		{Off, OpenAI, ""},
+		{Off, OpenAI, ""}, // OpenAI reasons only when asked; Off writes no field
 		{Low, OpenAI, "low"},
 		{Mid, OpenAI, "medium"},
 		{High, OpenAI, "high"},
-		{Max, OpenAI, "high"}, // OpenAI has no max; coerce down to high
+		{Max, OpenAI, "high"}, // OpenAI has no max; Max coerces down to high
 	}
 	for _, c := range cases {
 		if got := c.depth.ordinal(c.vocab); got != c.want {
-			t.Errorf("%d.ordinal(%q) = %q, want %q", c.depth, c.vocab, got, c.want)
+			t.Errorf("%d ordinal %s = %q, want %q", c.depth, c.vocab, got, c.want)
 		}
 	}
 }
 
 // Fields projects the depth into each upstream's native request shape.
 func TestFields(t *testing.T) {
-	j := func(m map[string]any) string { b, _ := json.Marshal(m); return string(b) }
+	j := func(m map[string]any) string {
+		b, _ := json.Marshal(m)
+		return string(b)
+	}
 
 	// GLM / OpenAI → reasoning_effort.
 	if got := j(Max.Fields(GLM)); got != `{"reasoning_effort":"max"}` {
@@ -106,6 +111,13 @@ func TestFields(t *testing.T) {
 		if got := j(Off.Fields(v)); got != `{}` {
 			t.Errorf("Off %q → %s, want {}", v, got)
 		}
+	}
+	// Zen reasons by default; Off actively silences thinking.
+	if got := j(Off.Fields(Zen)); got != `{"enable_thinking":false}` {
+		t.Errorf("Off Zen → %s, want enable_thinking:false", got)
+	}
+	if got := j(High.Fields(Zen)); got != `{"enable_thinking":true}` {
+		t.Errorf("High Zen → %s", got)
 	}
 	// Qwen → enable_thinking gate (no budget cap: the ordinal has none).
 	if got := j(High.Fields(Qwen)); got != `{"enable_thinking":true}` {
