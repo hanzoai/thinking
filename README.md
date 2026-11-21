@@ -1,5 +1,7 @@
 # thinking
 
+[![Open in Hanzo](https://hanzo.app/badges/open-in-hanzo.svg)](https://hanzo.app/dev/open?repo=github.com/hanzoai/thinking&ref=main&action=open) [![Edit with Hanzo](https://hanzo.app/badges/edit-with-hanzo.svg)](https://hanzo.app/dev/open?repo=github.com/hanzoai/thinking&ref=main&action=edit)
+
 Fold *how hard to think* into the native shape each upstream model accepts.
 
 Callers speak two dialects — Anthropic sends a token **budget**, OpenAI sends an
